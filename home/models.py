@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 
 class Document(models.Model):
     description = models.CharField(max_length=255, blank=True)
-    document = models.FileField(upload_to='documents/')
+    document = models.FileField(upload_to='pdfs/')
     uploaded_at = models.DateTimeField(auto_now_add=True)
     uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True)
     is_processed = models.BooleanField(default=False)
@@ -25,4 +25,7 @@ class ProcessedDocument(models.Model):
     text_content = models.TextField()
     embeddings = models.BinaryField(null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.file_name} - {self.uploaded_at}"
 

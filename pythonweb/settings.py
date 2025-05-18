@@ -41,9 +41,15 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'home',
+    'rest_framework',           # Để sử dụng Django REST framework
+    'corsheaders',             # Để hỗ trợ CORS
+    'django_filters',          # Để lọc dữ liệu
+    'crispy_forms',           # Để tạo form đẹp hơn
+    'crispy_bootstrap5',      # Bootstrap 5 template pack cho crispy forms
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # Thêm dòng này
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -87,9 +93,9 @@ WSGI_APPLICATION = 'pythonweb.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'django',
+        'NAME': 'chatbot',
         'USER': 'root',
-        'PASSWORD': 'Tung2004',
+        'PASSWORD': 'abcd@123',
         'HOST': 'localhost',   # Or an IP Address that your DB is hosted on
         'PORT': '3306',
     }
@@ -136,3 +142,18 @@ STATIC_URL = '/static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Cấu hình CORS
+CORS_ALLOW_ALL_ORIGINS = True  # Chỉ sử dụng trong môi trường development
+CORS_ALLOW_CREDENTIALS = True
+
+# Cấu hình Crispy Forms
+CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
+CRISPY_TEMPLATE_PACK = "bootstrap5"
+
+# Cấu hình REST Framework
+REST_FRAMEWORK = {
+    'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 10
+}

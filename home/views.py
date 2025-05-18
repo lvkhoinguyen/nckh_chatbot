@@ -52,73 +52,98 @@ def process_new_documents():
 
 
 def making_context(question):
-    processed_docs = ProcessedDocument.objects.all()
+    try:
+        processed_docs = ProcessedDocument.objects.all()
+        if not processed_docs.exists():
+            logger.error("Không có tài liệu nào được xử lý")
+            return ""
 
-    dimension = embedding_model.encode(["sample"]).shape[1]
-    faiss_index = faiss.IndexFlatL2(dimension)
+        dimension = embedding_model.encode(["sample"]).shape[1]
+        faiss_index = faiss.IndexFlatL2(dimension)
 
-    all_chunks = []
-    all_embeddings = [] # Thêm danh sách để lưu trữ embeddings
+        all_chunks = []
+        all_embeddings = []  # Thêm danh sách để lưu trữ embeddings
 
-    for doc in processed_docs:
-        if doc.embeddings:
-            try:
-                embeddings = pickle.loads(doc.embeddings)
-                if isinstance(embeddings, np.ndarray): # Kiểm tra xem embeddings có phải là mảng NumPy không
-                    faiss_index.add(embeddings)
-                    all_chunks.extend(split_text_into_chunks(doc.text_content))
-                    all_embeddings.append(embeddings) # Lưu trữ embeddings
-                else:
-                    print(f"doc.embeddings không phải là mảng NumPy: {type(embeddings)}")
-            except pickle.UnpicklingError:
-                print(f"Lỗi giải mã pickle cho doc.embeddings")
+        for doc in processed_docs:
+            if doc.embeddings:
+                try:
+                    embeddings = pickle.loads(doc.embeddings)
+                    if isinstance(embeddings, np.ndarray):  # Kiểm tra xem embeddings có phải là mảng NumPy không
+                        faiss_index.add(embeddings)
+                        all_chunks.extend(split_text_into_chunks(doc.text_content))
+                        all_embeddings.append(embeddings)  # Lưu trữ embeddings
+                    else:
+                        logger.error(f"doc.embeddings không phải là mảng NumPy: {type(embeddings)}")
+                except pickle.UnpicklingError as e:
+                    logger.error(f"Lỗi giải mã pickle cho doc.embeddings: {str(e)}")
+                    continue
 
-    if faiss_index.ntotal == 0:
-        print("FAISS index rỗng. Không có dữ liệu để tìm kiếm.")
+        if faiss_index.ntotal == 0:
+            logger.error("FAISS index rỗng. Không có dữ liệu để tìm kiếm.")
+            return ""
+
+        question_embedding = embedding_model.encode([question])
+        distances, top_indices = faiss_index.search(question_embedding, 5)
+
+        if top_indices.shape[1] == 0:
+            logger.error("Không tìm thấy kết quả phù hợp.")
+            return ""
+
+        relevant_chunks = [all_chunks[i] for i in top_indices[0]]
+        return " ".join(relevant_chunks)
+
+    except Exception as e:
+        logger.error(f"Lỗi trong making_context: {str(e)}")
         return ""
-
-    question_embedding = embedding_model.encode([question])
-    distances, top_indices = faiss_index.search(question_embedding, 5)
-
-    if top_indices.shape[1] == 0:
-        print("Không tìm thấy kết quả phù hợp.")
-        return ""
-
-    relevant_chunks = [all_chunks[i] for i in top_indices[0]]
-    return " ".join(relevant_chunks)
 
 
 def chatGoD(request):
-    history = request.session.get("chat_history", [])
-    if request.method == "POST":
-        if "clear_history" in request.POST:
-            request.session.pop("chat_history", None)
-            Answer.objects.all().delete()
-            return render(request, 'home/chatGoD.html', {"answer": None})
-
-        question = request.POST.get("question", "")
-        if question:
+    try:
+        if request.method == "POST":
+            question = request.POST.get("question", "")
+            logger.error(f"Câu hỏi nhận được: {question}")
+            
+            if not question:
+                logger.error("Không nhận được câu hỏi")
+                return render(request, 'home/chatGoD.html', {"answer": None})
+                
             context = making_context(question)
-            print("context:", context)
+            logger.error(f"Context: {context}")
+            
+            if not context:
+                logger.error("Không tìm thấy context phù hợp")
+                messages.warning(request, "Xin lỗi, tôi không tìm thấy thông tin liên quan trong tài liệu. Hãy thử câu hỏi khác.")
+                return render(request, 'home/chatGoD.html', {"answer": None})
+
             answer = asking(question, context, history)
+            if not answer or answer.startswith("Xin lỗi"):
+                logger.error("Không nhận được câu trả lời từ model")
+                messages.warning(request, "Xin lỗi, tôi đang gặp vấn đề trong việc xử lý. Hãy thử lại sau vài phút.")
+                return render(request, 'home/chatGoD.html', {"answer": None})
+
             history.append((question, answer))
             request.session["chat_history"] = history
 
-            form_data = {
-                "ask_content": question,
-                "answer_content": answer
-            }
-            form = AnswerForm(form_data)
-            if form.is_valid():
-                ask = form.save(commit=False)
-                if request.user.is_authenticated:
+            # Lưu câu hỏi và câu trả lời nếu người dùng đã đăng nhập
+            if request.user.is_authenticated:
+                form_data = {
+                    "ask_content": question,
+                    "answer_content": answer
+                }
+                form = AnswerForm(form_data)
+                if form.is_valid():
+                    ask = form.save(commit=False)
                     ask.uploaded_by = request.user
-                else:
-                    messages.error(request, "Bạn cần đăng nhập để tiếp tục.")
-                    return redirect('login')
-                ask.save()
+                    ask.save()
 
-    return render(request, 'home/chatGoD.html', {"answer": Answer.objects.last()})
+            return render(request, 'home/chatGoD.html', {
+                "answer": {"ask_content": question, "answer_content": answer}
+            })
+        return render(request, 'home/chatGoD.html', {"answer": Answer.objects.last() if Answer.objects.exists() else None})
+    except Exception as e:
+        logger.error(f"Lỗi trong chatGoD: {str(e)}")
+        messages.error(request, "Có lỗi xảy ra, vui lòng thử lại.")
+        return render(request, 'home/chatGoD.html', {"answer": None})
 
 
 def admin_check(user):
@@ -217,6 +242,7 @@ def register_view(request):
         username = request.POST.get('username')
         password = request.POST.get('password')
         confirm_password = request.POST.get('confirm_password')
+        
         if password != confirm_password:
             messages.error(request, 'Mật khẩu không khớp!')
             return render(request, 'home/register.html')
@@ -233,8 +259,9 @@ def register_view(request):
 
         user = User.objects.create_user(username=username, password=password)
         user.save()
+        login(request, user)  # Tự động đăng nhập sau khi đăng ký
         messages.success(request, 'Đăng ký thành công!')
-        return redirect('login')
+        return redirect('home')  # Chuyển hướng về trang chính
 
     return render(request, 'home/register.html')
 
@@ -249,7 +276,7 @@ def login_view(request):
         if user is not None:
             login(request, user)
             # messages.success(request, f'Chào mừng, {user.username}! Đăng nhập thành công!')
-            return redirect('account')
+            return redirect('home')
         else:
             messages.error(request, 'Tên tài khoản hoặc mật khẩu không đúng.')
 
