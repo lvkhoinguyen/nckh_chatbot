@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from django.contrib.messages import constants as message_constants
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,11 +26,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "home",
-    "rest_framework",
     "corsheaders",
-    "django_filters",
-    "crispy_forms",
-    "crispy_bootstrap5",
 ]
 
 MIDDLEWARE = [
@@ -107,11 +104,6 @@ _cors_raw = os.getenv("CORS_ALLOWED_ORIGINS", "")
 CORS_ALLOWED_ORIGINS = [u.strip() for u in _cors_raw.split(",") if u.strip()]
 CORS_ALLOW_CREDENTIALS = True
 
-CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
-CRISPY_TEMPLATE_PACK = "bootstrap5"
-
-REST_FRAMEWORK = {
-    "DEFAULT_FILTER_BACKENDS": ["django_filters.rest_framework.DjangoFilterBackend"],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 10,
+MESSAGE_TAGS = {
+    message_constants.ERROR: "danger",
 }

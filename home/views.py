@@ -199,7 +199,11 @@ def upload(request):
                 messages.error(request, f"Không thể xử lý tài liệu: {exc}")
             return redirect("upload")
 
-        messages.error(request, "Biểu mẫu tải lên không hợp lệ. Vui lòng chọn tệp hợp lệ.")
+        error_list = [err for field_errs in form.errors.values() for err in field_errs]
+        messages.error(
+            request,
+            " ".join(error_list) if error_list else "Biểu mẫu tải lên không hợp lệ. Vui lòng chọn tệp hợp lệ.",
+        )
         return redirect("upload")
 
     documents = Document.objects.prefetch_related("chunks").order_by("-uploaded_at")

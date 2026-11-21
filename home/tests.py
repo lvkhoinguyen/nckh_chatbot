@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from docx import Document as DocxDocument
 
+from home.forms import MAX_UPLOAD_SIZE_BYTES, DocumentForm
 from home.models import Answer, Document, DocumentChunk
 from home.services.chunker import build_document_chunks, split_text_safely
 from home.services.document_loader import LoadedPage, load_document_pages
@@ -180,3 +185,46 @@ class RagViewsAndApiTests(TestCase):
         DocumentChunk.objects.all().delete()
         empty_res = answer_question("test", embed_fn=_deterministic_embed)
         self.assertFalse(empty_res["found"])
+
+    def test_message_error_tag_maps_to_bootstrap_danger(self):
+        self.assertEqual(settings.MESSAGE_TAGS.get(messages.ERROR), "danger")
+
+    def test_document_form_validates_extension_and_size(self):
+        bad_ext = DocumentForm(
+            data={"description": "Bad"},
+            files={"document": SimpleUploadedFile("malware.exe", b"MZ")},
+        )
+        self.assertFalse(bad_ext.is_valid())
+        self.assertIn("document", bad_ext.errors)
+
+        oversized_file = SimpleUploadedFile("big.txt", b"a")
+        oversized_file.size = MAX_UPLOAD_SIZE_BYTES + 1
+        too_big = DocumentForm(
+            data={"description": "Too big"},
+            files={"document": oversized_file},
+        )
+        self.assertFalse(too_big.is_valid())
+        self.assertIn("document", too_big.errors)
+
+        valid_txt = DocumentForm(
+            data={"description": "Valid"},
+            files={"document": SimpleUploadedFile("notes.txt", "Nội dung hợp lệ.".encode("utf-8"))},
+        )
+        self.assertTrue(valid_txt.is_valid())
+
+    @patch("home.services.rag_pipeline.get_default_embedder", return_value=_deterministic_embed)
+    def test_ingest_pdfs_command_ingests_and_skips_duplicates(self, _mock_embedder):
+        with tempfile.TemporaryDirectory() as folder:
+            sample = Path(folder) / "new_policy.txt"
+            sample.write_text("Quy định mới về học bổng sinh viên khoa học máy tính.", encoding="utf-8")
+            ignored = Path(folder) / "ignore.exe"
+            ignored.write_bytes(b"binary")
+
+            out1 = io.StringIO()
+            call_command("ingest_pdfs", folder, stdout=out1)
+            self.assertIn("Ingested: 1, Skipped: 0", out1.getvalue())
+            self.assertTrue(Document.objects.filter(document__icontains="new_policy").exists())
+
+            out2 = io.StringIO()
+            call_command("ingest_pdfs", folder, stdout=out2)
+            self.assertIn("Ingested: 0, Skipped: 1", out2.getvalue())

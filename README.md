@@ -37,9 +37,12 @@ copy .env.example .env
 .\.venv\Scripts\python.exe manage.py migrate
 .\.venv\Scripts\python.exe manage.py createsuperuser
 
-# 4. Run automated tests
+# 4. (Optional) Bulk-ingest sample documents from pdfs/
+.\.venv\Scripts\python.exe manage.py ingest_pdfs
+
+# 5. Run automated tests
 .\.venv\Scripts\python.exe manage.py test -v 2
 
-# 5. Start development server
+# 6. Start development server
 .\.venv\Scripts\python.exe manage.py runserver 8000
 ```
