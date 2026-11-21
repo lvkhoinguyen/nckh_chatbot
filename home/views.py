@@ -12,10 +12,10 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from home.forms import DocumentForm
-from home.models import Answer, Document
+from home.models import Answer, Document, DocumentChunk
 from home.services.rag_pipeline import answer_question, ingest_document
 
 logger = logging.getLogger("django")
@@ -77,20 +77,27 @@ def chatGoD(request):
             {
                 "answer": {"ask_content": question, "answer_content": result["answer"]},
                 "citations": result["citations"],
+                "documents": Document.objects.filter(is_processed=True).prefetch_related("chunks").order_by("-uploaded_at"),
+                "selected_ids": set(selected_ids),
                 "selected_count": len(selected_ids),
+                "total_chunks": DocumentChunk.objects.count(),
             },
         )
 
     last_answer = None
     if request.user.is_authenticated:
         last_answer = Answer.objects.filter(uploaded_by=request.user).last()
+    selected_ids = _get_selected_doc_ids(request)
     return render(
         request,
         "home/chatGoD.html",
         {
             "answer": last_answer,
             "citations": [],
-            "selected_count": len(_get_selected_doc_ids(request)),
+            "documents": Document.objects.filter(is_processed=True).prefetch_related("chunks").order_by("-uploaded_at"),
+            "selected_ids": set(selected_ids),
+            "selected_count": len(selected_ids),
+            "total_chunks": DocumentChunk.objects.count(),
         },
     )
 
@@ -111,6 +118,7 @@ def api_chat(request):
     raw_doc_ids = payload.get("document_ids")
     if isinstance(raw_doc_ids, list):
         selected_ids = [int(x) for x in raw_doc_ids if str(x).isdigit()]
+        request.session["selected_doc_ids"] = selected_ids
     else:
         selected_ids = _get_selected_doc_ids(request)
 
@@ -123,6 +131,7 @@ def api_chat(request):
     )
 
     if result["found"]:
+        request.session.pop("chat_cleared", None)
         history.append((question, result["answer"]))
         request.session["chat_history"] = history[-MAX_CHAT_HISTORY:]
         if request.user.is_authenticated:
@@ -140,16 +149,62 @@ def api_chat(request):
             "citations": result["citations"],
             "provider": result.get("provider", "unknown"),
             "web_used": result.get("web_used", False),
+            "document_ids": selected_ids,
             "history_count": len(request.session.get("chat_history", [])),
         }
     )
+
+
+@require_GET
+def api_chat_history(request):
+    """Return chat history from session, hydrating from recent Answer records for authenticated users."""
+    history = _get_session_history(request)
+    if not history and not request.session.get("chat_cleared") and request.user.is_authenticated:
+        recent_rows = list(
+            Answer.objects.filter(uploaded_by=request.user).order_by("-ask_at", "-id")[:MAX_CHAT_HISTORY]
+        )
+        history = [(row.ask_content, row.answer_content) for row in reversed(recent_rows)]
+
+    messages_out = []
+    for ask_text, answer_text in history:
+        messages_out.append({"sender": "user", "message": ask_text, "citations": []})
+        messages_out.append({"sender": "bot", "message": answer_text, "citations": []})
+
+    return JsonResponse({"ok": True, "messages": messages_out})
 
 
 @require_POST
 def api_chat_clear(request):
     """Clear conversation history stored in Django session."""
     request.session.pop("chat_history", None)
+    request.session["chat_cleared"] = True
     return JsonResponse({"ok": True, "message": "Đã xóa toàn bộ lịch sử hội thoại."})
+
+
+@require_POST
+def api_select_documents(request):
+    """Persist selected document IDs for scoped RAG retrieval via JSON."""
+    try:
+        payload = json.loads(request.body.decode("utf-8")) if request.body else {}
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Payload JSON không hợp lệ."}, status=400)
+
+    raw_ids = payload.get("document_ids")
+    if not isinstance(raw_ids, list):
+        return JsonResponse({"ok": False, "error": "Trường 'document_ids' phải là danh sách."}, status=400)
+
+    selected_ids = []
+    seen = set()
+    for item in raw_ids:
+        if isinstance(item, bool) or not str(item).isdigit():
+            return JsonResponse({"ok": False, "error": f"ID tài liệu không hợp lệ: {item}"}, status=400)
+        doc_id = int(item)
+        if doc_id not in seen:
+            seen.add(doc_id)
+            selected_ids.append(doc_id)
+
+    request.session["selected_doc_ids"] = selected_ids
+    return JsonResponse({"ok": True, "selected_doc_ids": selected_ids})
 
 
 @user_passes_test(admin_check, login_url="home")
@@ -207,7 +262,14 @@ def upload(request):
         return redirect("upload")
 
     documents = Document.objects.prefetch_related("chunks").order_by("-uploaded_at")
-    return render(request, "admin/uploadManage.html", {"documents": documents})
+    return render(
+        request,
+        "admin/uploadManage.html",
+        {
+            "documents": documents,
+            "total_chunks": DocumentChunk.objects.count(),
+        },
+    )
 
 
 def select_files(request):

@@ -6,120 +6,92 @@
   <meta charset="utf-8">
   <meta content="width=device-width, initial-scale=1.0" name="viewport">
   <link rel="icon" href="{% static 'images/icon.png' %}" type="image/x-icon">
-  <title>{% block title %}NCKH RAG Chatbot{% endblock %}</title>
+  <title>{% block title %}ChatGoD — Vietnamese Hybrid RAG{% endblock %}</title>
 
-  <link href="https://fonts.gstatic.com" rel="preconnect">
-  <link href="https://fonts.googleapis.com/css?family=Open+Sans:300,400,600,700|Nunito:400,600,700|Poppins:400,500,600,700" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
   <link href="{% static 'vendor/bootstrap/css/bootstrap.min.css' %}" rel="stylesheet">
   <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.css' %}" rel="stylesheet">
-  <link href="{% static 'vendor/boxicons/css/boxicons.min.css' %}" rel="stylesheet">
-  <link href="{% static 'vendor/remixicon/remixicon.css' %}" rel="stylesheet">
-  <link href="{% static 'css/styleGoD.css' %}" rel="stylesheet">
+  <link href="{% static 'css/chatgod-studio.css' %}" rel="stylesheet">
 
   <style>{% block css %}{% endblock %}</style>
 </head>
 
 <body>
-  <aside id="sidebar" class="sidebar">
-    <ul class="sidebar-nav" id="sidebar-nav">
-      <li class="nav-item">
-        <a class="nav-link collapsed" href="{% url 'home' %}">
-          <i class="bi bi-chat-text"></i><span>Trò chuyện RAG</span>
-        </a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link collapsed" href="{% url 'select_file' %}">
-          <i class="bi bi-check2-square"></i><span>Chọn tài liệu</span>
-        </a>
-      </li>
+  <header class="cg-topbar">
+    <div class="d-flex align-items-center gap-2">
+      {% block topbar_left %}
+      <a class="cg-brand" href="{% url 'home' %}">
+        <span class="cg-brand-mark">C</span>
+        <span>ChatGoD</span>
+      </a>
+      <span class="cg-badge-mono d-none d-sm-inline-block">Hybrid BM25 + Vector RRF</span>
+      {% endblock %}
+    </div>
 
+    <div class="d-flex align-items-center gap-2">
+      <a class="cg-btn-ghost py-1 px-2" href="{% url 'home' %}">
+        <i class="bi bi-chat-square-text"></i>
+        <span class="d-none d-md-inline">Trò chuyện</span>
+      </a>
+      <a class="cg-btn-ghost py-1 px-2" href="{% url 'select_file' %}">
+        <i class="bi bi-funnel"></i>
+        <span class="d-none d-md-inline">Chọn tài liệu</span>
+      </a>
       {% if request.user.is_staff %}
-      <li class="nav-heading">Quản trị</li>
-      <li class="nav-item">
-        <a class="nav-link collapsed" href="{% url 'upload' %}">
-          <i class="bi bi-file-earmark-arrow-up"></i><span>Quản lý tài liệu</span>
-        </a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link collapsed" href="{% url 'account' %}">
-          <i class="bi bi-people"></i><span>Quản lý tài khoản</span>
-        </a>
-      </li>
+      <a class="cg-btn-ghost py-1 px-2" href="{% url 'upload' %}">
+        <i class="bi bi-folder2-open"></i>
+        <span class="d-none d-md-inline">Kho tri thức</span>
+      </a>
       {% endif %}
 
-      {% if not user.is_authenticated %}
-      <li class="nav-item">
-        <a class="nav-link collapsed" href="{% url 'login' %}">
-          <i class="bi bi-box-arrow-in-right"></i><span>Đăng nhập</span>
-        </a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link collapsed" href="{% url 'register' %}">
-          <i class="bi bi-person-plus"></i><span>Đăng ký</span>
-        </a>
-      </li>
-      {% else %}
-      <li class="nav-item">
-        <a class="nav-link collapsed text-danger" href="{% url 'logout' %}">
-          <i class="bi bi-box-arrow-right"></i><span>Đăng xuất</span>
-        </a>
-      </li>
-      {% endif %}
-    </ul>
-  </aside>
-
-  <main id="main" class="main">
-    <section class="section">
-      <div class="row" style="margin-right: 0px;">
-        <div class="col-lg-12" style="padding-right: 0px;">
-          <div class="card">
-            <div class="card-body" style="min-height: 92vh;">
-              <div class="d-flex align-items-center justify-content-between py-2 border-bottom mb-3">
-                <div class="d-flex align-items-center gap-2">
-                  <i class="bi bi-list toggle-sidebar-btn" style="font-size: 24px; cursor: pointer;"></i>
-                  <h5 class="card-title m-0 p-0">ChatGoD — Vietnamese Hybrid RAG</h5>
-                </div>
-
-                {% if request.user.is_authenticated %}
-                <div class="dropdown">
-                  <a class="nav-link d-flex align-items-center gap-2" href="#" data-bs-toggle="dropdown">
-                    <i class="bi bi-person-circle fs-5"></i>
-                    <span class="fw-semibold">{{ request.user.username }}</span>
-                  </a>
-                  <ul class="dropdown-menu dropdown-menu-end dropdown-menu-arrow profile">
-                    <li class="dropdown-header">
-                      <h6>{{ request.user.username }}</h6>
-                      <span>
-                        {% if request.user.is_superuser %}Superadmin{% elif request.user.is_staff %}Staff{% else %}User{% endif %}
-                      </span>
-                    </li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li>
-                      <a class="dropdown-item d-flex align-items-center" href="{% url 'logout' %}">
-                        <i class="bi bi-box-arrow-right"></i>
-                        <span>Đăng xuất</span>
-                      </a>
-                    </li>
-                  </ul>
-                </div>
-                {% endif %}
-              </div>
-
-              {% block content %}{% endblock %}
-            </div>
-          </div>
-        </div>
+      {% if request.user.is_authenticated %}
+      <div class="dropdown">
+        <button class="cg-btn-ghost py-1 px-2 dropdown-toggle" type="button" data-bs-toggle="dropdown">
+          <i class="bi bi-person-circle"></i>
+          <span>{{ request.user.username }}</span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+          <li class="dropdown-header">
+            <div class="fw-semibold text-dark">{{ request.user.username }}</div>
+            <small class="text-muted">
+              {% if request.user.is_superuser %}Superadmin{% elif request.user.is_staff %}Staff{% else %}User{% endif %}
+            </small>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+          {% if request.user.is_staff %}
+          <li>
+            <a class="dropdown-item" href="{% url 'upload' %}">
+              <i class="bi bi-cloud-arrow-up me-2"></i>Quản lý tài liệu
+            </a>
+          </li>
+          <li>
+            <a class="dropdown-item" href="{% url 'account' %}">
+              <i class="bi bi-people me-2"></i>Quản lý tài khoản
+            </a>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+          {% endif %}
+          <li>
+            <a class="dropdown-item text-danger" href="{% url 'logout' %}">
+              <i class="bi bi-box-arrow-right me-2"></i>Đăng xuất
+            </a>
+          </li>
+        </ul>
       </div>
-    </section>
-  </main>
+      {% else %}
+      <a class="cg-btn-primary py-1 px-3" href="{% url 'login' %}">Đăng nhập</a>
+      {% endif %}
+    </div>
+  </header>
 
-  <a href="#" class="back-to-top d-flex align-items-center justify-content-center"><i class="bi bi-arrow-up-short"></i></a>
+  {% block content %}{% endblock %}
 
   <script src="{% static 'vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
-  <script src="{% static 'js/scriptGoD.js' %}"></script>
   <script>
     {% block js %}{% endblock %}
   </script>

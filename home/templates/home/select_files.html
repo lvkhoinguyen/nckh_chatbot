@@ -3,57 +3,64 @@
 {% block title %}Chọn tài liệu — ChatGoD{% endblock %}
 
 {% block content %}
-<div class="container mt-3" style="max-width: 780px;">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-      <h4 class="mb-1">Chọn tài liệu để hỏi đáp RAG</h4>
-      <p class="text-muted small mb-0">
-        Nếu không chọn tài liệu nào, chatbot sẽ tìm kiếm trên toàn bộ kho lưu trữ.
-      </p>
+<div class="container py-4" style="max-width: 820px;">
+  <div class="cg-surface-card">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3 pb-3 border-bottom">
+      <div>
+        <div class="cg-rail-label mb-1">Phạm vi truy vấn Hybrid RAG</div>
+        <h4 class="fw-bold mb-1">Chọn tài liệu từ kho lưu trữ</h4>
+        <p class="text-muted small mb-0">
+          Nếu không chọn tài liệu nào, hệ thống sẽ tự động tìm kiếm trên toàn bộ kho dữ liệu.
+        </p>
+      </div>
+      <a href="{% url 'home' %}" class="cg-btn-primary">
+        <i class="bi bi-arrow-left"></i> Quay lại Chat
+      </a>
     </div>
-    <a href="{% url 'home' %}" class="btn btn-outline-primary btn-sm">Quay lại Chat</a>
-  </div>
 
-  {% if messages %}
-    {% for message in messages %}
-      <div class="alert alert-{{ message.tags|default:'info' }}">{{ message }}</div>
-    {% endfor %}
-  {% endif %}
-
-  <form method="POST" action="{% url 'select_file' %}">
-    {% csrf_token %}
-    {% if files %}
-      <div class="list-group mb-3">
-        {% for file in files %}
-          <label class="list-group-item d-flex align-items-start gap-3" style="cursor: pointer;">
-            <input
-              class="form-check-input mt-1"
-              type="checkbox"
-              name="selected_files"
-              value="{{ file.id }}"
-              {% if file.id in selected_ids %}checked{% endif %}
-            >
-            <div class="flex-grow-1">
-              <div class="fw-semibold">{{ file.document.name }}</div>
-              {% if file.description %}
-                <div class="small text-muted">{{ file.description }}</div>
-              {% endif %}
-            </div>
-            <span class="badge bg-light text-dark border">{{ file.chunks.count }} đoạn</span>
-          </label>
-        {% endfor %}
-      </div>
-      <div class="d-flex gap-2">
-        <button type="submit" class="btn btn-primary">Lưu phạm vi tài liệu</button>
-        <button type="submit" name="clear_selection" value="1" class="btn btn-outline-secondary">
-          Bỏ lọc (Dùng tất cả)
-        </button>
-      </div>
-    {% else %}
-      <div class="alert alert-warning">
-        Chưa có tài liệu nào được lập chỉ mục. Quản trị viên cần tải tài liệu lên tại trang Quản lý tài liệu.
-      </div>
+    {% if messages %}
+      {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} py-2 small">{{ message }}</div>
+      {% endfor %}
     {% endif %}
-  </form>
+
+    <form method="POST" action="{% url 'select_file' %}">
+      {% csrf_token %}
+      {% if files %}
+        <div class="d-flex flex-column gap-2 mb-4">
+          {% for file in files %}
+            <label class="cg-doc-item border {% if file.id in selected_ids %}active{% endif %}" style="background: var(--bg-canvas);">
+              <input
+                class="cg-doc-checkbox"
+                type="checkbox"
+                name="selected_files"
+                value="{{ file.id }}"
+                {% if file.id in selected_ids %}checked{% endif %}
+              >
+              <div class="flex-grow-1">
+                <div class="fw-semibold text-dark">{{ file.document.name }}</div>
+                {% if file.description %}
+                  <div class="small text-muted">{{ file.description }}</div>
+                {% endif %}
+              </div>
+              <span class="cg-badge-mono">{{ file.chunks.count }} chunks</span>
+            </label>
+          {% endfor %}
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <button type="submit" class="cg-btn-primary">
+            <i class="bi bi-check2-circle"></i> Lưu phạm vi tài liệu
+          </button>
+          <button type="submit" name="clear_selection" value="1" class="cg-btn-ghost">
+            Bỏ lọc (Dùng tất cả)
+          </button>
+        </div>
+      {% else %}
+        <div class="alert alert-warning mb-0 small">
+          Chưa có tài liệu nào được lập chỉ mục. Quản trị viên cần tải tài liệu lên tại trang Kho tri thức.
+        </div>
+      {% endif %}
+    </form>
+  </div>
 </div>
 {% endblock %}

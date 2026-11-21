@@ -1,140 +1,230 @@
 {% extends 'admin/adminBase.html' %}
 
-{% block title %}Quản lý tài liệu — ChatGoD{% endblock %}
+{% block title %}Kho tri thức & Tài liệu RAG — ChatGoD{% endblock %}
 
 {% block content %}
-<div class="pagetitle">
-  <h1>Quản lý file tải lên</h1>
-  <nav>
-    <ol class="breadcrumb">
-      <li class="breadcrumb-item"><a href="{% url 'home' %}">Trang chủ</a></li>
-      <li class="breadcrumb-item active">Quản lý upload</li>
-    </ol>
-  </nav>
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+  <div>
+    <div class="cg-rail-label mb-1">Hạ tầng chỉ mục Hybrid BM25 + Vector</div>
+    <h3 class="fw-bold mb-1">Kho tri thức &amp; Tài liệu RAG</h3>
+    <p class="text-muted small mb-0">
+      Quản lý tải lên, tách đoạn văn bản theo ngữ cảnh và lập chỉ mục tài liệu cho chatbot.
+    </p>
+  </div>
 </div>
 
-<section class="section">
-  <div class="row">
-    <div class="col-lg-12">
-      {% if messages %}
-        {% for message in messages %}
-          <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
-            {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-          </div>
-        {% endfor %}
-      {% endif %}
+{% if messages %}
+  {% for message in messages %}
+    <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show py-2 small" role="alert">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+  {% endfor %}
+{% endif %}
 
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center pt-3 mb-3">
-            <h5 class="card-title m-0 p-0">Danh sách tài liệu (.pdf, .docx, .txt, .md)</h5>
-            <button type="button" id="addb" class="btn btn-success btn-sm">
-              <i class="bi bi-plus-lg"></i> Tải tài liệu mới
-            </button>
-          </div>
+<!-- Summary Stat Pills -->
+<div class="cg-stat-grid">
+  <div class="cg-stat-card">
+    <div class="cg-rail-label">Tổng tài liệu</div>
+    <div class="fs-5 fw-bold mt-1">{{ documents|length }} tài liệu</div>
+  </div>
+  <div class="cg-stat-card">
+    <div class="cg-rail-label">Tổng đoạn đã chỉ mục</div>
+    <div class="fs-5 fw-bold font-mono-tech text-success mt-1">{{ total_chunks }} chunks</div>
+  </div>
+  <div class="cg-stat-card">
+    <div class="cg-rail-label">Định dạng hỗ trợ</div>
+    <div class="fs-6 fw-semibold font-mono-tech mt-1">PDF, DOCX, TXT, MD (&le; 20 MB)</div>
+  </div>
+</div>
 
-          <div class="card mb-3 hide" id="addf">
-            <div class="card-body pt-3">
-              <form method="post" enctype="multipart/form-data" class="row g-3">
-                {% csrf_token %}
-                <div class="col-md-6">
-                  <label for="file-input" class="form-label">Chọn file</label>
-                  <input type="file" id="file-input" name="document" class="form-control" accept=".pdf,.docx,.txt,.md" required>
-                </div>
-                <div class="col-md-6">
-                  <label for="text-input" class="form-label">Mô tả / Ghi chú</label>
-                  <input type="text" id="text-input" name="description" class="form-control" placeholder="Ví dụ: Quy định đào tạo 2025">
-                </div>
-                <div class="col-12">
-                  <button type="submit" class="btn btn-primary btn-sm">Upload &amp; Lập chỉ mục</button>
-                </div>
-              </form>
-            </div>
-          </div>
+<!-- Drag & Drop Upload Card -->
+<div class="cg-surface-card">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-cloud-arrow-up text-primary me-2"></i>Tải lên tài liệu mới vào Kho tri thức</h5>
+    <span class="cg-badge-mono">Giới hạn: 20 MB/tệp</span>
+  </div>
 
-          <table class="table datatable">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>File</th>
-                <th>Chunks</th>
-                <th>Ngày upload</th>
-                <th>Ghi chú</th>
-                <th>Hành động</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for obj in documents %}
-              <tr>
-                <td>{{ obj.id }}</td>
-                <td><a href="{{ obj.document.url }}" target="_blank">{{ obj.document.name }}</a></td>
-                <td><span class="badge bg-secondary">{{ obj.chunks.count }} đoạn</span></td>
-                <td>{{ obj.uploaded_at|date:"Y-m-d H:i" }}</td>
-                <td>
-                  <div id="old-data{{ obj.id }}" class="old-data">{{ obj.description }}</div>
-                  <input id="des{{ obj.id }}" class="form-control form-control-sm hide" value="{{ obj.description }}">
-                </td>
-                <td>
-                  <button type="button" data-doc-id="{{ obj.id }}" class="btn btn-outline-warning btn-sm edit">Sửa</button>
-                  <form method="POST" action="{% url 'upload' %}" style="display: inline;">
-                    {% csrf_token %}
-                    <input type="hidden" name="id" value="{{ obj.id }}">
-                    <input type="hidden" id="input-req{{ obj.id }}" name="input-req" value="{{ obj.description }}">
-                    <button type="submit" id="ok{{ obj.id }}" name="update_note" class="btn btn-outline-success btn-sm hide">OK</button>
-                  </form>
-                  <form method="POST" action="{% url 'upload' %}" style="display: inline;">
-                    {% csrf_token %}
-                    <input type="hidden" name="id" value="{{ obj.id }}">
-                    <button type="submit" id="del{{ obj.id }}" name="delete_document" class="btn btn-outline-danger btn-sm">Xoá</button>
-                  </form>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
+  <form method="post" enctype="multipart/form-data" id="uploadForm">
+    {% csrf_token %}
+    <label for="file-input" class="cg-dropzone d-block mb-3" id="dropzoneBox">
+      <i class="bi bi-file-earmark-arrow-up fs-2 text-primary d-block mb-2"></i>
+      <div class="fw-semibold" id="dropzoneTitle">Kéo thả tệp vào đây hoặc nhấp để chọn từ máy tính</div>
+      <div class="text-muted small mt-1" id="dropzoneSubtitle">Hỗ trợ .pdf, .docx, .txt, .md (tối đa 20 MB)</div>
+      <input type="file" id="file-input" name="document" class="d-none" accept=".pdf,.docx,.txt,.md" required>
+    </label>
+
+    <div class="row g-2 align-items-end">
+      <div class="col-md-9">
+        <label for="text-input" class="form-label small fw-semibold mb-1">Mô tả tài liệu &amp; ngữ cảnh</label>
+        <input type="text" id="text-input" name="description" class="form-control" placeholder="Ví dụ: Tài liệu quy định đào tạo hoặc hướng dẫn sử dụng...">
+      </div>
+      <div class="col-md-3">
+        <button type="submit" class="cg-btn-primary w-100 py-2">
+          <i class="bi bi-lightning-charge-fill"></i> Upload &amp; Lập chỉ mục
+        </button>
       </div>
     </div>
+  </form>
+</div>
+
+<!-- Indexed Documents Table -->
+<div class="cg-surface-card">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h5 class="fw-bold mb-0">Danh mục tài liệu đã chỉ mục</h5>
+    <div class="input-group input-group-sm" style="max-width: 280px;">
+      <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+      <input type="text" id="tableSearchInput" class="form-control" placeholder="Tìm tên file hoặc mô tả...">
+    </div>
   </div>
-</section>
+
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0" id="docsTable">
+      <thead class="table-light">
+        <tr class="small text-muted">
+          <th>ID</th>
+          <th>Tài liệu</th>
+          <th>Số Chunks</th>
+          <th>Trạng thái</th>
+          <th>Ngày tải lên</th>
+          <th>Mô tả</th>
+          <th class="text-end">Thao tác</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for obj in documents %}
+        <tr class="doc-table-row" data-search="{{ obj.document.name|lower }} {{ obj.description|lower }}">
+          <td class="font-mono-tech small text-muted">#{{ obj.id }}</td>
+          <td>
+            <div class="d-flex align-items-center gap-2">
+              {% if ".pdf" in obj.document.name|lower %}
+                <span class="cg-ext-pill cg-ext-pdf">PDF</span>
+              {% elif ".docx" in obj.document.name|lower %}
+                <span class="cg-ext-pill cg-ext-docx">DOCX</span>
+              {% else %}
+                <span class="cg-ext-pill cg-ext-txt">TEXT</span>
+              {% endif %}
+              <a href="{{ obj.document.url }}" target="_blank" class="fw-semibold text-decoration-none text-dark">{{ obj.document.name }}</a>
+            </div>
+          </td>
+          <td><span class="cg-badge-mono">{{ obj.chunks.count }} chunks</span></td>
+          <td>
+            {% if obj.is_processed %}
+              <span class="cg-badge-emerald"><i class="bi bi-circle-fill" style="font-size: 6px;"></i> Đã lập chỉ mục</span>
+            {% else %}
+              <span class="cg-badge-mono">Chờ xử lý</span>
+            {% endif %}
+          </td>
+          <td class="font-mono-tech small text-muted">{{ obj.uploaded_at|date:"Y-m-d H:i" }}</td>
+          <td style="min-width: 180px;">
+            <div id="old-data{{ obj.id }}" class="small text-secondary">{{ obj.description|default:"—" }}</div>
+            <input id="des{{ obj.id }}" class="form-control form-control-sm hide" value="{{ obj.description }}">
+          </td>
+          <td class="text-end text-nowrap">
+            <button type="button" data-doc-id="{{ obj.id }}" class="cg-btn-ghost py-1 px-2 edit">Sửa</button>
+            <form method="POST" action="{% url 'upload' %}" style="display: inline;">
+              {% csrf_token %}
+              <input type="hidden" name="id" value="{{ obj.id }}">
+              <input type="hidden" id="input-req{{ obj.id }}" name="input-req" value="{{ obj.description }}">
+              <button type="submit" id="ok{{ obj.id }}" name="update_note" class="cg-btn-primary py-1 px-2 hide">Lưu</button>
+            </form>
+            <form method="POST" action="{% url 'upload' %}" style="display: inline;">
+              {% csrf_token %}
+              <input type="hidden" name="id" value="{{ obj.id }}">
+              <button type="submit" id="del{{ obj.id }}" name="delete_document" class="cg-btn-ghost py-1 px-2 text-danger">Xoá</button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" class="text-center text-muted py-4 small">Chưa có tài liệu nào trong kho tri thức.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 {% endblock %}
 
 {% block js %}
-document.getElementById("addb").addEventListener("click", () => {
-  document.getElementById("addf").classList.toggle("hide");
-});
+const dropzone = document.getElementById("dropzoneBox");
+const fileInput = document.getElementById("file-input");
+const dropzoneTitle = document.getElementById("dropzoneTitle");
+const dropzoneSubtitle = document.getElementById("dropzoneSubtitle");
+
+function updateFilePreview(file) {
+  if (!file) return;
+  const sizeKb = (file.size / 1024).toFixed(1);
+  dropzoneTitle.textContent = `Đã chọn: ${file.name}`;
+  dropzoneSubtitle.textContent = `Dung lượng: ${sizeKb} KB — Sẵn sàng Upload & Lập chỉ mục`;
+}
+
+if (fileInput) {
+  fileInput.addEventListener("change", () => {
+    if (fileInput.files && fileInput.files[0]) updateFilePreview(fileInput.files[0]);
+  });
+}
+
+if (dropzone) {
+  ["dragenter", "dragover"].forEach((evt) => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach((evt) => {
+    dropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("dragover");
+    });
+  });
+  dropzone.addEventListener("drop", (e) => {
+    if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+      fileInput.files = e.dataTransfer.files;
+      updateFilePreview(e.dataTransfer.files[0]);
+    }
+  });
+}
+
+const tableSearchInput = document.getElementById("tableSearchInput");
+if (tableSearchInput) {
+  tableSearchInput.addEventListener("input", () => {
+    const q = tableSearchInput.value.trim().toLowerCase();
+    document.querySelectorAll(".doc-table-row").forEach((row) => {
+      const hay = row.getAttribute("data-search") || "";
+      row.classList.toggle("hide", q && !hay.includes(q));
+    });
+  });
+}
 
 document.querySelectorAll(".edit").forEach((button) => {
-  button.addEventListener("click", (e) => {
-    const btn = e.currentTarget;
-    const id = btn.getAttribute("data-doc-id");
-    const desInput = document.getElementById("des" + id);
-    const oldData = document.getElementById("old-data" + id);
-    const okBtn = document.getElementById("ok" + id);
-    const delBtn = document.getElementById("del" + id);
-    const hiddenReq = document.getElementById("input-req" + id);
+  const id = button.getAttribute("data-doc-id");
+  const desInput = document.getElementById("des" + id);
+  const oldData = document.getElementById("old-data" + id);
+  const okBtn = document.getElementById("ok" + id);
+  const delBtn = document.getElementById("del" + id);
+  const hiddenReq = document.getElementById("input-req" + id);
 
-    const isEditing = btn.textContent.trim() === "Sửa";
-    btn.textContent = isEditing ? "Huỷ" : "Sửa";
+  if (desInput && hiddenReq) {
+    desInput.addEventListener("input", () => {
+      hiddenReq.value = desInput.value;
+    });
+  }
 
+  button.addEventListener("click", () => {
+    const isEditing = button.textContent.trim() === "Sửa";
+    button.textContent = isEditing ? "Huỷ" : "Sửa";
     desInput.classList.toggle("hide");
     oldData.classList.toggle("hide");
     okBtn.classList.toggle("hide");
     delBtn.classList.toggle("hide");
 
     if (isEditing) {
-      desInput.value = oldData.textContent.trim();
+      const raw = oldData.textContent.trim();
+      desInput.value = raw === "—" ? "" : raw;
       hiddenReq.value = desInput.value;
+      desInput.focus();
     }
   });
-
-  const id = button.getAttribute("data-doc-id");
-  const desInput = document.getElementById("des" + id);
-  if (desInput) {
-    desInput.addEventListener("input", () => {
-      document.getElementById("input-req" + id).value = desInput.value;
-    });
-  }
 });
 {% endblock %}

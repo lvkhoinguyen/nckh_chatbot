@@ -1,169 +1,212 @@
 {% extends 'home/base.html' %}
 
-{% block title %}ChatGoD — Hỏi đáp tài liệu RAG{% endblock %}
+{% block title %}ChatGoD — Workspace Hybrid RAG{% endblock %}
 
-{% block css %}
-  .chat-container {
-    width: 100%;
-    max-width: 980px;
-    margin: 0 auto;
-    background: #fff;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .chat-toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    padding: 12px 16px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f9fafb;
-  }
-
-  .chat-body {
-    padding: 20px;
-    height: 60vh;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .chat-message {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .user-message {
-    align-items: flex-end;
-  }
-
-  .bot-message {
-    align-items: flex-start;
-  }
-
-  .message-bubble {
-    max-width: 85%;
-    padding: 12px 16px;
-    border-radius: 14px;
-    line-height: 1.5;
-    font-size: 14px;
-  }
-
-  .user-message .message-bubble {
-    background-color: #111827;
-    color: #ffffff;
-    border-top-right-radius: 2px;
-  }
-
-  .bot-message .message-bubble {
-    background-color: #f3f4f6;
-    color: #111827;
-    border: 1px solid #e5e7eb;
-    border-top-left-radius: 2px;
-  }
-
-  .bot-message .message-bubble p:last-child {
-    margin-bottom: 0;
-  }
-
-  .citations-box {
-    max-width: 85%;
-    margin-top: 6px;
-    font-size: 12px;
-  }
-
-  .citation-item {
-    border: 1px solid #e5e7eb;
-    background: #ffffff;
-    border-radius: 8px;
-    padding: 8px 10px;
-    margin-top: 4px;
-  }
-
-  .chat-footer {
-    padding: 12px 16px;
-    border-top: 1px solid #e5e7eb;
-    background: #ffffff;
-  }
+{% block topbar_left %}
+<button type="button" class="cg-btn-ghost py-1 px-2 d-lg-none" id="toggleLeftMobile" title="Mở kho tài liệu">
+  <i class="bi bi-layout-sidebar"></i>
+</button>
+<a class="cg-brand" href="{% url 'home' %}">
+  <span class="cg-brand-mark">C</span>
+  <span>ChatGoD</span>
+</a>
+<span class="cg-badge-mono d-none d-sm-inline-block">Hybrid BM25 + Vector RRF</span>
 {% endblock %}
 
 {% block content %}
-<div class="chat-container">
-  <div class="chat-toolbar">
-    <div class="d-flex align-items-center gap-2 flex-wrap">
-      <span class="badge bg-dark">Hybrid RAG (BM25 + Vector RRF)</span>
-      <a href="{% url 'select_file' %}" class="btn btn-sm btn-outline-secondary">
-        <i class="bi bi-funnel"></i>
-        {% if selected_count > 0 %}
-          Đang lọc {{ selected_count }} tài liệu
-        {% else %}
-          Phạm vi: Tất cả tài liệu
-        {% endif %}
-      </a>
-    </div>
-
-    <div class="d-flex align-items-center gap-3">
-      <div class="form-check form-switch m-0">
-        <input class="form-check-input" type="checkbox" id="useWebSearch">
-        <label class="form-check-label small text-muted" for="useWebSearch">Tìm Web bổ sung</label>
+<div class="cg-workspace" id="cgWorkspace">
+  <!-- 1. Left Rail: Document Scope -->
+  <aside class="cg-left-rail" id="leftRail">
+    <div class="cg-rail-section d-flex flex-column gap-2">
+      <button type="button" id="newConversationBtn" class="cg-btn-primary w-100">
+        <i class="bi bi-plus-lg"></i> Cuộc trò chuyện mới
+      </button>
+      <div class="d-flex align-items-center justify-content-between pt-1">
+        <span class="cg-rail-label">Kho tài liệu</span>
+        <span class="cg-badge-mono">{{ total_chunks }} chunks</span>
       </div>
-      <button id="clearChat" type="button" class="btn btn-sm btn-outline-danger">
-        <i class="bi bi-trash"></i> Xóa hội thoại
-      </button>
+      <div class="input-group input-group-sm">
+        <span class="input-group-text bg-white"><i class="bi bi-search text-muted"></i></span>
+        <input type="text" id="docFilterInput" class="form-control" placeholder="Tìm trong tài liệu...">
+      </div>
+      <div class="d-flex justify-content-between align-items-center small">
+        <button type="button" id="selectAllDocsBtn" class="btn btn-link btn-sm p-0 text-decoration-none">Chọn hết</button>
+        <button type="button" id="clearDocScopeBtn" class="btn btn-link btn-sm p-0 text-decoration-none text-muted">Bỏ lọc (Tất cả)</button>
+      </div>
     </div>
-  </div>
 
-  <div class="chat-body" id="chatBody">
-    <div class="text-center text-muted small my-auto" id="emptyState">
-      Đặt câu hỏi về tài liệu đã tải lên để hệ thống truy xuất đoạn trích và trả lời kèm trích dẫn nguồn.
+    <div class="cg-doc-list" id="docList">
+      {% if documents %}
+        {% for doc in documents %}
+          <label class="cg-doc-item {% if doc.id in selected_ids %}active{% endif %}" data-doc-name="{{ doc.document.name|lower }}">
+            <input
+              type="checkbox"
+              class="cg-doc-checkbox doc-scope-checkbox"
+              value="{{ doc.id }}"
+              {% if doc.id in selected_ids %}checked{% endif %}
+            >
+            <div class="flex-grow-1 min-w-0">
+              <div class="cg-doc-name">{{ doc.document.name }}</div>
+              <div class="cg-doc-meta">
+                {% if ".pdf" in doc.document.name|lower %}
+                  <span class="cg-ext-pill cg-ext-pdf">PDF</span>
+                {% elif ".docx" in doc.document.name|lower %}
+                  <span class="cg-ext-pill cg-ext-docx">DOCX</span>
+                {% else %}
+                  <span class="cg-ext-pill cg-ext-txt">TEXT</span>
+                {% endif %}
+                <span class="cg-badge-mono">{{ doc.chunks.count }} chunks</span>
+              </div>
+            </div>
+          </label>
+        {% endfor %}
+      {% else %}
+        <div class="p-3 text-center text-muted small">
+          Chưa có tài liệu nào được lập chỉ mục.
+        </div>
+      {% endif %}
     </div>
-  </div>
 
-  <div class="chat-footer">
-    <div id="chatError" class="alert alert-danger py-2 px-3 small d-none mb-2"></div>
-    <form id="askForm" class="d-flex gap-2">
-      {% csrf_token %}
-      <input
-        class="form-control"
-        type="text"
-        name="question"
-        id="question"
-        placeholder="Nhập câu hỏi về tài liệu của bạn..."
-        autocomplete="off"
-        required
-      >
-      <button id="sendButton" class="btn btn-primary px-4" type="submit">
-        <i class="bi bi-send"></i> Gửi
-      </button>
-    </form>
-  </div>
+    <div class="cg-rail-footer">
+      {% if request.user.is_staff %}
+      <a href="{% url 'upload' %}" class="cg-btn-ghost w-100">
+        <i class="bi bi-cloud-arrow-up"></i> Quản lý tài liệu (Upload)
+      </a>
+      {% else %}
+      <a href="{% url 'select_file' %}" class="cg-btn-ghost w-100">
+        <i class="bi bi-check2-square"></i> Trang chọn tài liệu
+      </a>
+      {% endif %}
+    </div>
+  </aside>
+
+  <!-- 2. Center Stage: Reading & Chat Stream -->
+  <section class="cg-center-stage">
+    <div class="cg-stage-bar">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="cg-badge-emerald" id="scopeStatusBadge">
+          <i class="bi bi-circle-fill" style="font-size: 7px;"></i>
+          <span id="scopeStatusText">
+            {% if selected_count > 0 %}
+              Đang lọc {{ selected_count }} tài liệu
+            {% else %}
+              Toàn bộ {{ documents|length }} tài liệu · {{ total_chunks }} đoạn
+            {% endif %}
+          </span>
+        </span>
+      </div>
+
+      <div class="d-flex align-items-center gap-3">
+        <div class="form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" id="useWebSearch">
+          <label class="form-check-label small text-muted" for="useWebSearch">Tìm Web bổ sung</label>
+        </div>
+
+        <button type="button" id="toggleInspectorBtn" class="cg-btn-ghost py-1 px-2" title="Ẩn/hiện Nguồn trích dẫn">
+          <i class="bi bi-layout-sidebar-reverse"></i>
+          <span class="d-none d-md-inline">Nguồn</span>
+        </button>
+
+        <button type="button" id="clearChat" class="cg-btn-ghost py-1 px-2 text-danger" title="Xóa lịch sử hội thoại">
+          <i class="bi bi-trash"></i>
+          <span class="d-none d-sm-inline">Xóa hội thoại</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="cg-chat-scroll" id="chatBody">
+      <div class="cg-chat-column" id="chatColumn">
+        <div class="cg-empty-state" id="emptyState">
+          <div class="cg-brand-mark mx-auto mb-3" style="width: 42px; height: 42px; font-size: 18px;">C</div>
+          <h5 class="fw-bold mb-1">ChatGoD — Trợ lý hỏi đáp tài liệu tiếng Việt</h5>
+          <p class="text-muted small mb-0">
+            Truy xuất kết hợp từ khóa BM25 và Vector ngữ nghĩa, trả lời bám sát tài liệu kèm số trang trích dẫn gốc.
+          </p>
+          <div class="cg-starter-grid">
+            <button type="button" class="cg-starter-chip starter-prompt-btn">
+              Tóm tắt nội dung chính và các quy định quan trọng trong tài liệu
+            </button>
+            <button type="button" class="cg-starter-chip starter-prompt-btn">
+              Liệt kê các nguyên tắc, điều kiện hoặc chỉ tiêu số liệu được đề cập
+            </button>
+            <button type="button" class="cg-starter-chip starter-prompt-btn">
+              So sánh sự khác biệt giữa các phần hoặc cấp quản lý trong tài liệu
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cg-composer-wrap">
+      <div id="chatError" class="alert alert-danger py-2 px-3 small d-none mb-2 mx-auto" style="max-width: 780px;"></div>
+      <form id="askForm" class="cg-composer-card">
+        {% csrf_token %}
+        <input
+          class="cg-composer-input"
+          type="text"
+          name="question"
+          id="question"
+          placeholder="Đặt câu hỏi về tài liệu của bạn..."
+          autocomplete="off"
+          required
+        >
+        <button id="sendButton" class="cg-btn-primary px-3 py-2" type="submit">
+          <i class="bi bi-send-fill"></i>
+          <span class="d-none d-sm-inline">Gửi</span>
+        </button>
+      </form>
+    </div>
+
+    {% if messages %}
+      <div class="px-4 pb-2">
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }} py-2 mb-1 small">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+  <!-- 3. Right Collapsible Source Inspector -->
+  <aside class="cg-right-inspector" id="rightInspector">
+    <div class="cg-rail-section d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-journal-bookmark text-success"></i>
+        <span class="fw-semibold small">Nguồn trích dẫn</span>
+      </div>
+      <span class="cg-badge-mono" id="inspectorCount">0 đoạn</span>
+    </div>
+
+    <div class="cg-inspector-list" id="inspectorList">
+      <div class="text-center text-muted small my-auto px-3" id="inspectorEmpty">
+        Khi bạn đặt câu hỏi, các đoạn văn bản trích xuất từ tài liệu và điểm khớp Hybrid RRF sẽ hiển thị tại đây để đối chiếu.
+      </div>
+    </div>
+
+    <div class="cg-rail-footer">
+      <div class="font-mono-tech text-muted" style="font-size: 11px;">
+        Reciprocal Rank Fusion (k=60): Dense 65% + BM25 35%
+      </div>
+    </div>
+  </aside>
 </div>
-
-{% if messages %}
-  <div class="mt-3 mx-auto" style="max-width: 980px;">
-    {% for message in messages %}
-      <div class="alert alert-{{ message.tags|default:'info' }}">{{ message }}</div>
-    {% endfor %}
-  </div>
-{% endif %}
 {% endblock %}
 
 {% block js %}
+const workspace = document.getElementById("cgWorkspace");
 const chatBody = document.getElementById("chatBody");
+const chatColumn = document.getElementById("chatColumn");
 const askForm = document.getElementById("askForm");
 const questionInput = document.getElementById("question");
 const sendButton = document.getElementById("sendButton");
 const clearChatButton = document.getElementById("clearChat");
+const newConversationBtn = document.getElementById("newConversationBtn");
 const chatError = document.getElementById("chatError");
 const useWebSearchInput = document.getElementById("useWebSearch");
-const STORAGE_KEY = "chatMessages_v2";
+const inspectorList = document.getElementById("inspectorList");
+const inspectorCount = document.getElementById("inspectorCount");
+const scopeStatusText = document.getElementById("scopeStatusText");
+const docFilterInput = document.getElementById("docFilterInput");
+const STORAGE_KEY = "chatMessages_v3";
 
 function getCsrfToken() {
   const input = askForm.querySelector('input[name="csrfmiddlewaretoken"]');
@@ -190,79 +233,223 @@ function renderMarkdownSafe(text) {
   return escapeHtml(source).replace(/\n/g, "<br>");
 }
 
-function appendMessage(message, sender, citations = [], persist = true) {
+function renderInspector(citations, highlightIdx = null) {
+  inspectorList.innerHTML = "";
+  const list = Array.isArray(citations) ? citations : [];
+  inspectorCount.textContent = `${list.length} đoạn`;
+
+  if (list.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "text-center text-muted small my-auto px-3";
+    empty.textContent = "Chưa có đoạn trích dẫn cho lượt hỏi này.";
+    inspectorList.appendChild(empty);
+    return;
+  }
+
+  const maxScore = Math.max(...list.map((c) => Number(c.score) || 0.01), 0.01);
+
+  list.forEach((c, idx) => {
+    const card = document.createElement("div");
+    card.className = "cg-source-card" + (highlightIdx === idx ? " highlighted" : "");
+    card.id = `source-card-${idx}`;
+
+    const pct = Math.min(100, Math.max(18, Math.round(((Number(c.score) || 0) / maxScore) * 100)));
+
+    card.innerHTML = `
+      <div class="d-flex align-items-center justify-content-between gap-2">
+        <span class="fw-semibold small text-truncate" title="${escapeHtml(c.file_name)}">${escapeHtml(c.file_name)}</span>
+        <span class="cg-badge-mono">Trang ${Number(c.page_number) || 1}</span>
+      </div>
+      <div class="d-flex align-items-center justify-content-between mt-1 font-mono-tech text-muted" style="font-size: 11px;">
+        <span>Hybrid RRF Score</span>
+        <span class="text-success fw-semibold">${Number(c.score || 0).toFixed(4)}</span>
+      </div>
+      <div class="cg-score-track"><div class="cg-score-fill" style="width: ${pct}%;"></div></div>
+      <div class="small text-secondary" style="line-height: 1.45;">${escapeHtml(c.excerpt)}</div>
+    `;
+    inspectorList.appendChild(card);
+  });
+
+  if (highlightIdx !== null) {
+    const target = document.getElementById(`source-card-${highlightIdx}`);
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+function appendMessage(message, sender, citations = [], provider = "", persist = true) {
   const empty = document.getElementById("emptyState");
   if (empty) empty.remove();
 
-  const wrapper = document.createElement("div");
-  wrapper.classList.add("chat-message", `${sender}-message`);
+  const row = document.createElement("div");
+  row.classList.add("cg-msg-row", sender === "user" ? "cg-msg-user" : "cg-msg-bot");
 
-  const bubble = document.createElement("div");
-  bubble.classList.add("message-bubble");
   if (sender === "user") {
+    const bubble = document.createElement("div");
+    bubble.className = "cg-bubble-user";
     bubble.textContent = message;
+    row.appendChild(bubble);
   } else {
-    bubble.innerHTML = renderMarkdownSafe(message);
-  }
-  wrapper.appendChild(bubble);
+    const bubble = document.createElement("div");
+    bubble.className = "cg-bubble-bot";
 
-  if (sender === "bot" && Array.isArray(citations) && citations.length > 0) {
-    const details = document.createElement("details");
-    details.classList.add("citations-box");
-    const summary = document.createElement("summary");
-    summary.className = "text-muted fw-semibold";
-    summary.style.cursor = "pointer";
-    summary.textContent = `Nguồn trích dẫn (${citations.length} đoạn phù hợp nhất)`;
-    details.appendChild(summary);
+    const header = document.createElement("div");
+    header.className = "cg-bot-header";
+    const leftMeta = document.createElement("div");
+    leftMeta.className = "d-flex align-items-center gap-2";
+    leftMeta.innerHTML = `<span class="fw-bold text-primary"><i class="bi bi-stars me-1"></i>ChatGoD</span>` +
+      (provider ? `<span class="cg-badge-mono">${escapeHtml(provider)}</span>` : "");
 
-    citations.forEach((c) => {
-      const item = document.createElement("div");
-      item.classList.add("citation-item");
-      const header = document.createElement("div");
-      header.className = "fw-bold text-dark";
-      header.textContent = `${c.file_name} — Trang ${c.page_number} (score: ${c.score})`;
-      const excerpt = document.createElement("div");
-      excerpt.className = "text-muted mt-1";
-      excerpt.textContent = c.excerpt;
-      item.appendChild(header);
-      item.appendChild(excerpt);
-      details.appendChild(item);
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "cg-btn-ghost py-0 px-2 font-mono-tech";
+    copyBtn.style.fontSize = "11px";
+    copyBtn.innerHTML = `<i class="bi bi-clipboard"></i> Copy`;
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(message || "");
+      copyBtn.innerHTML = `<i class="bi bi-check2 text-success"></i> Copied`;
+      setTimeout(() => { copyBtn.innerHTML = `<i class="bi bi-clipboard"></i> Copy`; }, 1500);
     });
-    wrapper.appendChild(details);
+
+    header.appendChild(leftMeta);
+    header.appendChild(copyBtn);
+    bubble.appendChild(header);
+
+    const bodyDiv = document.createElement("div");
+    bodyDiv.innerHTML = renderMarkdownSafe(message);
+    bubble.appendChild(bodyDiv);
+
+    if (Array.isArray(citations) && citations.length > 0) {
+      const strip = document.createElement("div");
+      strip.className = "cg-citation-strip";
+      citations.forEach((c, idx) => {
+        const pill = document.createElement("button");
+        pill.type = "button";
+        pill.className = "cg-cite-pill";
+        pill.innerHTML = `<i class="bi bi-file-earmark-text"></i> ${escapeHtml(c.file_name)} · Tr.${Number(c.page_number) || 1}`;
+        pill.addEventListener("click", () => {
+          workspace.classList.remove("inspector-collapsed");
+          workspace.classList.add("inspector-open-mobile");
+          renderInspector(citations, idx);
+        });
+        strip.appendChild(pill);
+      });
+      bubble.appendChild(strip);
+      renderInspector(citations);
+    }
+
+    row.appendChild(bubble);
   }
 
-  chatBody.appendChild(wrapper);
+  chatColumn.appendChild(row);
   chatBody.scrollTop = chatBody.scrollHeight;
 
   if (persist) {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    saved.push({ message, sender, citations });
+    saved.push({ message, sender, citations, provider });
     localStorage.setItem(STORAGE_KEY, JSON.stringify(saved.slice(-30)));
   }
 }
 
-function loadMessagesFromStorage() {
-  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-  saved.forEach((item) => appendMessage(item.message, item.sender, item.citations || [], false));
+async function hydrateHistory() {
+  try {
+    const res = await fetch("{% url 'api_chat_history' %}");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.messages) && data.messages.length > 0) {
+        data.messages.forEach((m) => appendMessage(m.message, m.sender, m.citations || [], "", false));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(data.messages.slice(-30)));
+        return;
+      }
+    }
+  } catch (_) {}
+
+  const local = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+  local.forEach((m) => appendMessage(m.message, m.sender, m.citations || [], m.provider || "", false));
 }
 
-loadMessagesFromStorage();
+hydrateHistory();
 
+// Document Scope Live Selection
+function getSelectedDocIds() {
+  return Array.from(document.querySelectorAll(".doc-scope-checkbox:checked")).map((cb) => Number(cb.value));
+}
+
+async function syncSelectedDocs() {
+  const ids = getSelectedDocIds();
+  document.querySelectorAll(".cg-doc-item").forEach((item) => {
+    const cb = item.querySelector(".doc-scope-checkbox");
+    item.classList.toggle("active", Boolean(cb && cb.checked));
+  });
+  scopeStatusText.textContent = ids.length > 0
+    ? `Đang lọc ${ids.length} tài liệu`
+    : `Toàn bộ {{ documents|length }} tài liệu · {{ total_chunks }} đoạn`;
+
+  try {
+    await fetch("{% url 'api_select_documents' %}", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": getCsrfToken(),
+      },
+      body: JSON.stringify({ document_ids: ids }),
+    });
+  } catch (_) {}
+}
+
+document.querySelectorAll(".doc-scope-checkbox").forEach((cb) => {
+  cb.addEventListener("change", syncSelectedDocs);
+});
+
+const selectAllDocsBtn = document.getElementById("selectAllDocsBtn");
+if (selectAllDocsBtn) {
+  selectAllDocsBtn.addEventListener("click", () => {
+    document.querySelectorAll(".doc-scope-checkbox").forEach((cb) => { cb.checked = true; });
+    syncSelectedDocs();
+  });
+}
+
+const clearDocScopeBtn = document.getElementById("clearDocScopeBtn");
+if (clearDocScopeBtn) {
+  clearDocScopeBtn.addEventListener("click", () => {
+    document.querySelectorAll(".doc-scope-checkbox").forEach((cb) => { cb.checked = false; });
+    syncSelectedDocs();
+  });
+}
+
+if (docFilterInput) {
+  docFilterInput.addEventListener("input", () => {
+    const q = docFilterInput.value.trim().toLowerCase();
+    document.querySelectorAll("#docList .cg-doc-item").forEach((el) => {
+      const name = el.getAttribute("data-doc-name") || "";
+      el.classList.toggle("hide", q && !name.includes(q));
+    });
+  });
+}
+
+// Starter prompt buttons
+document.querySelectorAll(".starter-prompt-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    questionInput.value = btn.textContent.trim();
+    questionInput.focus();
+  });
+});
+
+// Submit Chat Query
 askForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const question = questionInput.value.trim();
   if (!question) return;
 
   chatError.classList.add("d-none");
-  appendMessage(question, "user", [], true);
+  appendMessage(question, "user", [], "", true);
   questionInput.value = "";
   sendButton.disabled = true;
 
   const loadingEl = document.createElement("div");
   loadingEl.className = "text-muted small fst-italic";
   loadingEl.id = "loadingIndicator";
-  loadingEl.textContent = "Đang truy xuất tài liệu và tổng hợp câu trả lời...";
-  chatBody.appendChild(loadingEl);
+  loadingEl.textContent = "Đang truy xuất Hybrid Search và tổng hợp câu trả lời...";
+  chatColumn.appendChild(loadingEl);
   chatBody.scrollTop = chatBody.scrollHeight;
 
   try {
@@ -275,6 +462,7 @@ askForm.addEventListener("submit", async (e) => {
       body: JSON.stringify({
         question,
         use_web_search: useWebSearchInput.checked,
+        document_ids: getSelectedDocIds(),
       }),
     });
     const data = await response.json();
@@ -283,7 +471,7 @@ askForm.addEventListener("submit", async (e) => {
     if (!response.ok || !data.ok) {
       throw new Error(data.error || "Không thể xử lý câu hỏi.");
     }
-    appendMessage(data.answer, "bot", data.citations || [], true);
+    appendMessage(data.answer, "bot", data.citations || [], data.provider || "", true);
   } catch (err) {
     loadingEl.remove();
     chatError.textContent = err.message || "Có lỗi xảy ra, vui lòng thử lại.";
@@ -294,14 +482,39 @@ askForm.addEventListener("submit", async (e) => {
   }
 });
 
-clearChatButton.addEventListener("click", async () => {
+async function resetConversation() {
   localStorage.removeItem(STORAGE_KEY);
-  chatBody.innerHTML = '<div class="text-center text-muted small my-auto" id="emptyState">Đã xóa hội thoại. Hãy đặt câu hỏi mới.</div>';
+  chatColumn.innerHTML = `
+    <div class="cg-empty-state" id="emptyState">
+      <div class="cg-brand-mark mx-auto mb-3" style="width: 42px; height: 42px; font-size: 18px;">C</div>
+      <h5 class="fw-bold mb-1">Đã bắt đầu hội thoại mới</h5>
+      <p class="text-muted small mb-0">Hãy đặt câu hỏi để truy xuất dữ liệu từ tài liệu của bạn.</p>
+    </div>
+  `;
+  renderInspector([]);
   try {
     await fetch("{% url 'api_chat_clear' %}", {
       method: "POST",
       headers: { "X-CSRFToken": getCsrfToken() },
     });
   } catch (_) {}
+}
+
+clearChatButton.addEventListener("click", resetConversation);
+newConversationBtn.addEventListener("click", resetConversation);
+
+document.getElementById("toggleInspectorBtn").addEventListener("click", () => {
+  if (window.innerWidth <= 1120) {
+    workspace.classList.toggle("inspector-open-mobile");
+  } else {
+    workspace.classList.toggle("inspector-collapsed");
+  }
 });
+
+const toggleLeftMobile = document.getElementById("toggleLeftMobile");
+if (toggleLeftMobile) {
+  toggleLeftMobile.addEventListener("click", () => {
+    workspace.classList.toggle("left-open-mobile");
+  });
+}
 {% endblock %}

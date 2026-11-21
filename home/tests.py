@@ -228,3 +228,51 @@ class RagViewsAndApiTests(TestCase):
             out2 = io.StringIO()
             call_command("ingest_pdfs", folder, stdout=out2)
             self.assertIn("Ingested: 0, Skipped: 1", out2.getvalue())
+
+    def test_api_chat_history_hydrates_from_answer_and_respects_clear(self):
+        Answer.objects.create(
+            ask_content="Câu hỏi đã lưu",
+            answer_content="Câu trả lời đã lưu",
+            uploaded_by=self.user,
+        )
+        client = Client()
+        client.force_login(self.user)
+
+        hist_res = client.get(reverse("api_chat_history"))
+        self.assertEqual(hist_res.status_code, 200)
+        msgs = hist_res.json()["messages"]
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(msgs[0]["sender"], "user")
+        self.assertEqual(msgs[0]["message"], "Câu hỏi đã lưu")
+        self.assertEqual(msgs[1]["sender"], "bot")
+        self.assertEqual(msgs[1]["message"], "Câu trả lời đã lưu")
+
+        client.post(reverse("api_chat_clear"))
+        after_clear = client.get(reverse("api_chat_history"))
+        self.assertEqual(after_clear.json()["messages"], [])
+
+    def test_api_select_documents_persists_and_validates(self):
+        client = Client()
+        bad = client.post(
+            reverse("api_select_documents"),
+            data=json.dumps({"document_ids": "not-a-list"}),
+            content_type="application/json",
+        )
+        self.assertEqual(bad.status_code, 400)
+
+        res = client.post(
+            reverse("api_select_documents"),
+            data=json.dumps({"document_ids": [self.doc1.id, self.doc1.id]}),
+            content_type="application/json",
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["selected_doc_ids"], [self.doc1.id])
+        self.assertEqual(client.session.get("selected_doc_ids"), [self.doc1.id])
+
+        cleared = client.post(
+            reverse("api_select_documents"),
+            data=json.dumps({"document_ids": []}),
+            content_type="application/json",
+        )
+        self.assertEqual(cleared.status_code, 200)
+        self.assertEqual(client.session.get("selected_doc_ids"), [])

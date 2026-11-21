@@ -3,80 +3,81 @@
 {% block title %}Quản lý tài khoản — ChatGoD{% endblock %}
 
 {% block content %}
-<div class="pagetitle">
-  <h1>Tài khoản</h1>
-  <nav>
-    <ol class="breadcrumb">
-      <li class="breadcrumb-item"><a href="{% url 'home' %}">Trang chủ</a></li>
-      <li class="breadcrumb-item active">Tài khoản</li>
-    </ol>
-  </nav>
+<div class="mb-4">
+  <div class="cg-rail-label mb-1">Phân quyền &amp; truy cập</div>
+  <h3 class="fw-bold mb-1">Quản lý tài khoản</h3>
+  <p class="text-muted small mb-0">Cập nhật quyền Admin / Staff / User cho thành viên hệ thống.</p>
 </div>
 
-<section class="section">
-  <div class="row">
-    <div class="col-lg-12">
-      {% if messages %}
-        {% for message in messages %}
-          <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
-            {{ message }}
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-          </div>
-        {% endfor %}
-      {% endif %}
-
-      <div class="card">
-        <div class="card-body">
-          <h5 class="card-title">Danh sách tài khoản</h5>
-          <table class="table datatable">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Tên đăng nhập</th>
-                <th>Quyền</th>
-                <th>Trạng thái</th>
-                <th>Hành động</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for obj in users %}
-              <tr>
-                <td>{{ obj.id }}</td>
-                <td>{{ obj.username }}</td>
-                <td>
-                  <div id="selectedValue{{ obj.id }}" data-value="{% if obj.is_superuser %}Superadmin{% elif obj.is_staff %}Staff{% else %}User{% endif %}">
-                    {% if obj.is_superuser %}Admin{% elif obj.is_staff %}Staff{% else %}User{% endif %}
-                  </div>
-                  <select class="hide form-select form-select-sm" id="authoritySelect{{ obj.id }}">
-                    <option value="Superadmin" {% if obj.is_superuser %}selected{% endif %}>Admin</option>
-                    <option value="Staff" {% if obj.is_staff and not obj.is_superuser %}selected{% endif %}>Staff</option>
-                    <option value="User" {% if not obj.is_staff and not obj.is_superuser %}selected{% endif %}>User</option>
-                  </select>
-                </td>
-                <td>{{ obj.is_active }}</td>
-                <td>
-                  <button type="button" data-user-id="{{ obj.id }}" class="edit btn btn-outline-warning btn-sm">Sửa</button>
-                  <form method="POST" action="{% url 'account' %}" style="display: inline;">
-                    {% csrf_token %}
-                    <input type="hidden" name="id" value="{{ obj.id }}">
-                    <input type="hidden" id="newauth{{ obj.id }}" name="newauth" value="{% if obj.is_superuser %}Superadmin{% elif obj.is_staff %}Staff{% else %}User{% endif %}">
-                    <button type="submit" id="ok{{ obj.id }}" name="update_auth" class="btn btn-outline-success btn-sm hide">OK</button>
-                  </form>
-                  <form method="POST" action="{% url 'account' %}" style="display: inline;">
-                    {% csrf_token %}
-                    <input type="hidden" name="id" value="{{ obj.id }}">
-                    <button type="submit" name="delete_account" id="del{{ obj.id }}" class="btn btn-outline-danger btn-sm">Xoá</button>
-                  </form>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
+{% if messages %}
+  {% for message in messages %}
+    <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show py-2 small" role="alert">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>
+  {% endfor %}
+{% endif %}
+
+<div class="cg-surface-card">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr class="small text-muted">
+          <th>ID</th>
+          <th>Tên đăng nhập</th>
+          <th>Quyền</th>
+          <th>Trạng thái</th>
+          <th class="text-end">Hành động</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for obj in users %}
+        <tr>
+          <td class="font-mono-tech small text-muted">#{{ obj.id }}</td>
+          <td class="fw-semibold">{{ obj.username }}</td>
+          <td>
+            <div id="selectedValue{{ obj.id }}" data-value="{% if obj.is_superuser %}Superadmin{% elif obj.is_staff %}Staff{% else %}User{% endif %}">
+              {% if obj.is_superuser %}
+                <span class="cg-badge-mono text-primary">Admin</span>
+              {% elif obj.is_staff %}
+                <span class="cg-badge-emerald">Staff</span>
+              {% else %}
+                <span class="cg-badge-mono">User</span>
+              {% endif %}
+            </div>
+            <select class="hide form-select form-select-sm" id="authoritySelect{{ obj.id }}" style="max-width: 140px;">
+              <option value="Superadmin" {% if obj.is_superuser %}selected{% endif %}>Admin</option>
+              <option value="Staff" {% if obj.is_staff and not obj.is_superuser %}selected{% endif %}>Staff</option>
+              <option value="User" {% if not obj.is_staff and not obj.is_superuser %}selected{% endif %}>User</option>
+            </select>
+          </td>
+          <td>
+            {% if obj.is_active %}
+              <span class="cg-badge-emerald">Active</span>
+            {% else %}
+              <span class="cg-badge-mono">Inactive</span>
+            {% endif %}
+          </td>
+          <td class="text-end text-nowrap">
+            <button type="button" data-user-id="{{ obj.id }}" class="cg-btn-ghost py-1 px-2 edit">Sửa</button>
+            <form method="POST" action="{% url 'account' %}" style="display: inline;">
+              {% csrf_token %}
+              <input type="hidden" name="id" value="{{ obj.id }}">
+              <input type="hidden" id="newauth{{ obj.id }}" name="newauth" value="{% if obj.is_superuser %}Superadmin{% elif obj.is_staff %}Staff{% else %}User{% endif %}">
+              <button type="submit" id="ok{{ obj.id }}" name="update_auth" class="cg-btn-primary py-1 px-2 hide">Lưu</button>
+            </form>
+            <form method="POST" action="{% url 'account' %}" style="display: inline;">
+              {% csrf_token %}
+              <input type="hidden" name="id" value="{{ obj.id }}">
+              <button type="submit" name="delete_account" id="del{{ obj.id }}" class="cg-btn-ghost py-1 px-2 text-danger">Xoá</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
-</section>
+</div>
 {% endblock %}
 
 {% block js %}
