@@ -1,34 +1,59 @@
 {% extends 'home/base.html' %}
 
-{% load static %}
-{% block title %}Register{% endblock %}
+{% block title %}Chọn tài liệu — ChatGoD{% endblock %}
+
 {% block content %}
-<h3>Chọn các file từ kho lưu trữ:</h3>
-<form id="selectForm">
+<div class="container mt-3" style="max-width: 780px;">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h4 class="mb-1">Chọn tài liệu để hỏi đáp RAG</h4>
+      <p class="text-muted small mb-0">
+        Nếu không chọn tài liệu nào, chatbot sẽ tìm kiếm trên toàn bộ kho lưu trữ.
+      </p>
+    </div>
+    <a href="{% url 'home' %}" class="btn btn-outline-primary btn-sm">Quay lại Chat</a>
+  </div>
+
+  {% if messages %}
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+
+  <form method="POST" action="{% url 'select_file' %}">
     {% csrf_token %}
-    <ul>
+    {% if files %}
+      <div class="list-group mb-3">
         {% for file in files %}
-            <li>
-                <input type="checkbox" name="selected_files" value="{{ file.document.url }}">
-                {{ file.document.name }} {{ file.description }}
-            </li>
+          <label class="list-group-item d-flex align-items-start gap-3" style="cursor: pointer;">
+            <input
+              class="form-check-input mt-1"
+              type="checkbox"
+              name="selected_files"
+              value="{{ file.id }}"
+              {% if file.id in selected_ids %}checked{% endif %}
+            >
+            <div class="flex-grow-1">
+              <div class="fw-semibold">{{ file.document.name }}</div>
+              {% if file.description %}
+                <div class="small text-muted">{{ file.description }}</div>
+              {% endif %}
+            </div>
+            <span class="badge bg-light text-dark border">{{ file.chunks.count }} đoạn</span>
+          </label>
         {% endfor %}
-    </ul>
-
-    <button type="button" id="saveSelection">Lưu lựa chọn</button>
-</form>
-
-
-
-{% endblock %}
-{% block js %}
-    document.getElementById('saveSelection').addEventListener('click', function () {
-        const selectedFiles = [];
-        document.querySelectorAll('input[name="selected_files"]:checked').forEach(file => {
-            selectedFiles.push(file.value);
-        });
-
-        localStorage.setItem('selectedFiles', JSON.stringify(selectedFiles));
-        alert("Lưu lựa chọn thành công!");
-    });
+      </div>
+      <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-primary">Lưu phạm vi tài liệu</button>
+        <button type="submit" name="clear_selection" value="1" class="btn btn-outline-secondary">
+          Bỏ lọc (Dùng tất cả)
+        </button>
+      </div>
+    {% else %}
+      <div class="alert alert-warning">
+        Chưa có tài liệu nào được lập chỉ mục. Quản trị viên cần tải tài liệu lên tại trang Quản lý tài liệu.
+      </div>
+    {% endif %}
+  </form>
+</div>
 {% endblock %}

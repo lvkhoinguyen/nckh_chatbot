@@ -179,6 +179,7 @@
   const useDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const isSmallScreen = window.matchMedia('(max-width: 1023.5px)').matches;
 
+  if (typeof tinymce !== 'undefined') {
   tinymce.init({
     selector: 'textarea.tinymce-editor',
     plugins: 'preview importcss searchreplace autolink autosave save directionality code visualblocks visualchars fullscreen image link media codesample table charmap pagebreak nonbreaking anchor insertdatetime advlist lists wordcount help charmap quickbars emoticons accordion',
@@ -252,6 +253,7 @@
     content_css: useDarkMode ? 'dark' : 'default',
     content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:16px }'
   });
+  }
 
   /**
    * Initiate Bootstrap validation check
@@ -274,6 +276,7 @@
    * Initiate Datatables
    */
   const datatables = select('.datatable', true)
+  if (typeof simpleDatatables !== 'undefined') {
   datatables.forEach(datatable => {
     new simpleDatatables.DataTable(datatable, {
       perPageSelect: [5, 10, 15, ["All", -1]],
@@ -293,12 +296,13 @@
       ]
     });
   })
+  }
 
   /**
    * Autoresize echart charts
    */
   const mainContainer = select('#main');
-  if (mainContainer) {
+  if (mainContainer && typeof echarts !== 'undefined') {
     setTimeout(() => {
       new ResizeObserver(function() {
         select('.echart', true).forEach(getEchart => {

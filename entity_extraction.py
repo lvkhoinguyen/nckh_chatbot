@@ -1,9 +1,0 @@
-import spacy
-
-# Load spaCy model
-nlp = spacy.load("en_core_web_sm")
-
-def extract_entities(text):
-    """Extract named entities from text using spaCy"""
-    doc = nlp(text)
-    return [(ent.text, ent.label_) for ent in doc.ents]

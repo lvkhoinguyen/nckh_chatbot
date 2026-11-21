@@ -1,283 +1,322 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from home.models import Document, Answer, ProcessedDocument
-from django.contrib.auth import login, authenticate
-from django.contrib import messages
-from django.contrib.auth.models import User
-from django.contrib.auth.decorators import user_passes_test
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
-from django.contrib.auth.decorators import login_required
-from django.contrib.auth import logout
-from home.forms import DocumentForm, AnswerForm
-from home.rag import split_text_into_chunks, asking, extract_text_from_pdf
+import json
 import logging
 import os
-from sentence_transformers import SentenceTransformer
-import faiss
-import numpy as np
-import pickle
-# from django.utils.timezone import now
-# from datetime import datetime
+from pathlib import Path
+from typing import List
 
-logger = logging.getLogger('django')
-# Mô hình Sentence Transformer
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+from django.contrib import messages
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 
+from home.forms import DocumentForm
+from home.models import Answer, Document
+from home.services.rag_pipeline import answer_question, ingest_document
 
-def process_new_documents():
-    # Lấy các tài liệu chưa xử lý
-    unprocessed_docs = Document.objects.filter(is_processed=False)
-
-    for doc in unprocessed_docs:
-        file_path = doc.document.path
-        text_content = extract_text_from_pdf(file_path)  # Trích xuất nội dung từ file
-        logger.error(1)
-        # Chia nhỏ thành các đoạn
-        chunks = split_text_into_chunks(text_content)
-        # Tạo embedding cho các đoạn văn bản
-        chunk_embeddings = np.array(embedding_model.encode(chunks))
-        # logger.error("chunks: %s, chunks_emb: %s",chunks, chunk_embeddings)
-
-        # Lưu thông tin vào bảng ProcessedDocument, lưu chunk_embeddings thay vì faiss_index
-        ProcessedDocument.objects.create(
-            file_name=doc,
-            text_content=text_content,
-            embeddings=pickle.dumps(chunk_embeddings), # Lưu chunk_embeddings
-            document=doc
-        )
-        # Đánh dấu tài liệu đã xử lý
-        doc.is_processed = True
-        doc.save()
-        logger.error(3)
+logger = logging.getLogger("django")
+MAX_CHAT_HISTORY = 10
 
 
-def making_context(question):
-    try:
-        processed_docs = ProcessedDocument.objects.all()
-        if not processed_docs.exists():
-            logger.error("Không có tài liệu nào được xử lý")
-            return ""
+def admin_check(user) -> bool:
+    return bool(user.is_authenticated and user.is_staff)
 
-        dimension = embedding_model.encode(["sample"]).shape[1]
-        faiss_index = faiss.IndexFlatL2(dimension)
 
-        all_chunks = []
-        all_embeddings = []  # Thêm danh sách để lưu trữ embeddings
+def _get_session_history(request) -> List[tuple[str, str]]:
+    raw = request.session.get("chat_history", [])
+    return [(str(item[0]), str(item[1])) for item in raw if isinstance(item, (list, tuple)) and len(item) == 2]
 
-        for doc in processed_docs:
-            if doc.embeddings:
-                try:
-                    embeddings = pickle.loads(doc.embeddings)
-                    if isinstance(embeddings, np.ndarray):  # Kiểm tra xem embeddings có phải là mảng NumPy không
-                        faiss_index.add(embeddings)
-                        all_chunks.extend(split_text_into_chunks(doc.text_content))
-                        all_embeddings.append(embeddings)  # Lưu trữ embeddings
-                    else:
-                        logger.error(f"doc.embeddings không phải là mảng NumPy: {type(embeddings)}")
-                except pickle.UnpicklingError as e:
-                    logger.error(f"Lỗi giải mã pickle cho doc.embeddings: {str(e)}")
-                    continue
 
-        if faiss_index.ntotal == 0:
-            logger.error("FAISS index rỗng. Không có dữ liệu để tìm kiếm.")
-            return ""
-
-        question_embedding = embedding_model.encode([question])
-        distances, top_indices = faiss_index.search(question_embedding, 5)
-
-        if top_indices.shape[1] == 0:
-            logger.error("Không tìm thấy kết quả phù hợp.")
-            return ""
-
-        relevant_chunks = [all_chunks[i] for i in top_indices[0]]
-        return " ".join(relevant_chunks)
-
-    except Exception as e:
-        logger.error(f"Lỗi trong making_context: {str(e)}")
-        return ""
+def _get_selected_doc_ids(request) -> List[int]:
+    raw = request.session.get("selected_doc_ids", [])
+    return [int(x) for x in raw if str(x).isdigit()]
 
 
 def chatGoD(request):
-    try:
-        if request.method == "POST":
-            question = request.POST.get("question", "")
-            logger.error(f"Câu hỏi nhận được: {question}")
-            
-            if not question:
-                logger.error("Không nhận được câu hỏi")
-                return render(request, 'home/chatGoD.html', {"answer": None})
-                
-            context = making_context(question)
-            logger.error(f"Context: {context}")
-            
-            if not context:
-                logger.error("Không tìm thấy context phù hợp")
-                messages.warning(request, "Xin lỗi, tôi không tìm thấy thông tin liên quan trong tài liệu. Hãy thử câu hỏi khác.")
-                return render(request, 'home/chatGoD.html', {"answer": None})
+    """Render the chat interface and handle legacy form POST/clear_history gracefully."""
+    if request.method == "POST":
+        if "clear_history" in request.POST:
+            request.session.pop("chat_history", None)
+            messages.success(request, "Đã xóa lịch sử hội thoại.")
+            return redirect("home")
 
-            answer = asking(question, context, history)
-            if not answer or answer.startswith("Xin lỗi"):
-                logger.error("Không nhận được câu trả lời từ model")
-                messages.warning(request, "Xin lỗi, tôi đang gặp vấn đề trong việc xử lý. Hãy thử lại sau vài phút.")
-                return render(request, 'home/chatGoD.html', {"answer": None})
+        question = request.POST.get("question", "").strip()
+        if not question:
+            messages.warning(request, "Vui lòng nhập câu hỏi.")
+            return redirect("home")
 
-            history.append((question, answer))
-            request.session["chat_history"] = history
+        use_web = request.POST.get("use_web_search") == "on"
+        history = _get_session_history(request)
+        selected_ids = _get_selected_doc_ids(request)
+        result = answer_question(
+            question=question,
+            history=history,
+            selected_doc_ids=selected_ids or None,
+            use_web_search=use_web,
+        )
 
-            # Lưu câu hỏi và câu trả lời nếu người dùng đã đăng nhập
+        if result["found"]:
+            history.append((question, result["answer"]))
+            request.session["chat_history"] = history[-MAX_CHAT_HISTORY:]
             if request.user.is_authenticated:
-                form_data = {
-                    "ask_content": question,
-                    "answer_content": answer
-                }
-                form = AnswerForm(form_data)
-                if form.is_valid():
-                    ask = form.save(commit=False)
-                    ask.uploaded_by = request.user
-                    ask.save()
+                Answer.objects.create(
+                    ask_content=question,
+                    answer_content=result["answer"],
+                    uploaded_by=request.user,
+                )
+        else:
+            messages.warning(request, result["answer"])
 
-            return render(request, 'home/chatGoD.html', {
-                "answer": {"ask_content": question, "answer_content": answer}
-            })
-        return render(request, 'home/chatGoD.html', {"answer": Answer.objects.last() if Answer.objects.exists() else None})
-    except Exception as e:
-        logger.error(f"Lỗi trong chatGoD: {str(e)}")
-        messages.error(request, "Có lỗi xảy ra, vui lòng thử lại.")
-        return render(request, 'home/chatGoD.html', {"answer": None})
+        return render(
+            request,
+            "home/chatGoD.html",
+            {
+                "answer": {"ask_content": question, "answer_content": result["answer"]},
+                "citations": result["citations"],
+                "selected_count": len(selected_ids),
+            },
+        )
+
+    last_answer = None
+    if request.user.is_authenticated:
+        last_answer = Answer.objects.filter(uploaded_by=request.user).last()
+    return render(
+        request,
+        "home/chatGoD.html",
+        {
+            "answer": last_answer,
+            "citations": [],
+            "selected_count": len(_get_selected_doc_ids(request)),
+        },
+    )
 
 
-def admin_check(user):
-    return user.is_staff
+@require_POST
+def api_chat(request):
+    """JSON chat endpoint returning answer, citations, provider metadata, and updated history."""
+    try:
+        payload = json.loads(request.body.decode("utf-8")) if request.body else {}
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "Payload JSON không hợp lệ."}, status=400)
+
+    question = str(payload.get("question", "")).strip()
+    if not question:
+        return JsonResponse({"ok": False, "error": "Vui lòng nhập nội dung câu hỏi."}, status=400)
+
+    use_web_search = bool(payload.get("use_web_search", False))
+    raw_doc_ids = payload.get("document_ids")
+    if isinstance(raw_doc_ids, list):
+        selected_ids = [int(x) for x in raw_doc_ids if str(x).isdigit()]
+    else:
+        selected_ids = _get_selected_doc_ids(request)
+
+    history = _get_session_history(request)
+    result = answer_question(
+        question=question,
+        history=history,
+        selected_doc_ids=selected_ids or None,
+        use_web_search=use_web_search,
+    )
+
+    if result["found"]:
+        history.append((question, result["answer"]))
+        request.session["chat_history"] = history[-MAX_CHAT_HISTORY:]
+        if request.user.is_authenticated:
+            Answer.objects.create(
+                ask_content=question,
+                answer_content=result["answer"],
+                uploaded_by=request.user,
+            )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "found": result["found"],
+            "answer": result["answer"],
+            "citations": result["citations"],
+            "provider": result.get("provider", "unknown"),
+            "web_used": result.get("web_used", False),
+            "history_count": len(request.session.get("chat_history", [])),
+        }
+    )
 
 
-@user_passes_test(admin_check, login_url='home')
+@require_POST
+def api_chat_clear(request):
+    """Clear conversation history stored in Django session."""
+    request.session.pop("chat_history", None)
+    return JsonResponse({"ok": True, "message": "Đã xóa toàn bộ lịch sử hội thoại."})
+
+
+@user_passes_test(admin_check, login_url="home")
 def upload(request):
-    if request.method == 'POST':
+    """Manage uploaded PDF/DOCX/TXT documents and trigger RAG chunking/embedding ingestion."""
+    if request.method == "POST":
         if "delete_document" in request.POST:
             try:
                 document_id = request.POST.get("id")
                 document = get_object_or_404(Document, id=document_id)
-                if document.document and os.path.exists(document.document.path):
-                    os.remove(document.document.path)
+                file_path = document.document.path if document.document else None
                 document.delete()
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
                 messages.success(request, "Tài liệu đã được xóa thành công!")
-            except Exception as e:
+            except Exception as exc:
+                logger.exception("Error deleting document: %s", exc)
                 messages.error(request, "Có lỗi khi xóa tài liệu.")
-            return redirect('upload')
+            return redirect("upload")
 
         if "update_note" in request.POST:
             try:
                 document_id = request.POST.get("id")
                 document = get_object_or_404(Document, id=document_id)
-                document.description = request.POST.get("input-req")
-                document.save()
+                document.description = request.POST.get("input-req", "").strip()
+                document.save(update_fields=["description"])
                 messages.success(request, "Cập nhật mô tả thành công!")
-            except Exception as e:
+            except Exception as exc:
+                logger.exception("Error updating note: %s", exc)
                 messages.error(request, "Có lỗi khi cập nhật mô tả.")
-            return redirect('upload')
+            return redirect("upload")
 
         form = DocumentForm(request.POST, request.FILES)
         if form.is_valid():
             document = form.save(commit=False)
+            document.uploaded_by = request.user
+            document.save()
             try:
-                document.uploaded_by = request.user
-                document.save()
-                process_new_documents()
-                messages.success(request, "Tải lên thành công!")
-            except Exception as e:
-                messages.error(request, "Có lỗi khi tải lên.")
-                logger.error("e:", e)
+                chunk_count = ingest_document(document)
+                messages.success(request, f"Tải lên và lập chỉ mục thành công ({chunk_count} đoạn văn bản)!")
+            except Exception as exc:
+                logger.exception("Error ingesting document: %s", exc)
+                file_path = document.document.path if document.document else None
                 document.delete()
-                os.remove(document.document.path)
-            return redirect('upload')
+                if file_path and os.path.exists(file_path):
+                    os.remove(file_path)
+                messages.error(request, f"Không thể xử lý tài liệu: {exc}")
+            return redirect("upload")
 
-    documents = Document.objects.all()
-    return render(request, 'admin/uploadManage.html', {'documents': documents})
+        messages.error(request, "Biểu mẫu tải lên không hợp lệ. Vui lòng chọn tệp hợp lệ.")
+        return redirect("upload")
+
+    documents = Document.objects.prefetch_related("chunks").order_by("-uploaded_at")
+    return render(request, "admin/uploadManage.html", {"documents": documents})
 
 
 def select_files(request):
-    return render(request, 'home/select_files.html')
+    """Allow users to choose which processed documents are scoped during RAG retrieval."""
+    if request.method == "POST":
+        if "clear_selection" in request.POST:
+            request.session.pop("selected_doc_ids", None)
+            messages.success(request, "Đã bỏ lọc: Chatbot sẽ tìm trên toàn bộ tài liệu.")
+            return redirect("select_file")
+
+        raw_ids = request.POST.getlist("selected_files")
+        selected_ids = [int(x) for x in raw_ids if str(x).isdigit()]
+        request.session["selected_doc_ids"] = selected_ids
+        messages.success(request, f"Đã lưu phạm vi tìm kiếm ({len(selected_ids)} tài liệu).")
+        return redirect("select_file")
+
+    files = Document.objects.filter(is_processed=True).order_by("-uploaded_at")
+    selected_ids = set(_get_selected_doc_ids(request))
+    return render(
+        request,
+        "home/select_files.html",
+        {
+            "files": files,
+            "selected_ids": selected_ids,
+        },
+    )
 
 
 def logout_view(request):
     logout(request)
-    messages.success(request, 'Đăng xuất thành công.')
-    return redirect('login')
+    messages.success(request, "Đăng xuất thành công.")
+    return redirect("login")
 
 
-@login_required(login_url='login')
-@user_passes_test(admin_check, login_url='home')
+@login_required(login_url="login")
+@user_passes_test(admin_check, login_url="home")
 def account(request):
-    users = User.objects.all()
-    if "delete_account" in request.POST:
-        account_id = request.POST.get("id")  # Lấy ID từ form
-        acc = get_object_or_404(User, id=account_id)
-        acc.delete()  # Xóa tài liệu trong database
-        messages.success(request, "Tài khoản đã được xóa thành công!")
-        return redirect('account')
-    if "update_auth" in request.POST:
-        try:
+    users = User.objects.all().order_by("id")
+    if request.method == "POST":
+        if "delete_account" in request.POST:
             account_id = request.POST.get("id")
-            account = get_object_or_404(User, id=account_id)
-            if request.POST.get("newauth") == "Superadmin":
-                account.is_superuser = True
-                account.is_staff = True
-            elif request.POST.get("newauth") == "Staff":
-                account.is_superuser = False
-                account.is_staff = True
-            else:
-                account.is_superuser = False
-                account.is_staff = False
-            account.save()
-            messages.success(request, "Cập nhật thành công!")
-        except Exception as e:
-            logger.error(f"Lỗi khi cập nhật mô tả: {e}")
-            messages.error(request, "Có lỗi xảy ra khi cập nhật mô tả. Vui lòng thử lại!")
-        return redirect('account')
-    return render(request, 'admin/account.html', {'users': users})
+            acc = get_object_or_404(User, id=account_id)
+            if acc == request.user:
+                messages.error(request, "Không thể tự xóa tài khoản đang đăng nhập.")
+                return redirect("account")
+            acc.delete()
+            messages.success(request, "Tài khoản đã được xóa thành công!")
+            return redirect("account")
+
+        if "update_auth" in request.POST:
+            try:
+                account_id = request.POST.get("id")
+                acc = get_object_or_404(User, id=account_id)
+                role = request.POST.get("newauth")
+                if role == "Superadmin":
+                    acc.is_superuser = True
+                    acc.is_staff = True
+                elif role == "Staff":
+                    acc.is_superuser = False
+                    acc.is_staff = True
+                else:
+                    acc.is_superuser = False
+                    acc.is_staff = False
+                acc.save(update_fields=["is_superuser", "is_staff"])
+                messages.success(request, "Cập nhật phân quyền thành công!")
+            except Exception as exc:
+                logger.exception("Error updating authority: %s", exc)
+                messages.error(request, "Có lỗi xảy ra khi cập nhật phân quyền.")
+            return redirect("account")
+
+    return render(request, "admin/account.html", {"users": users})
 
 
 def register_view(request):
-    if request.method == 'POST':
-        username = request.POST.get('username')
-        password = request.POST.get('password')
-        confirm_password = request.POST.get('confirm_password')
-        
+    if request.method == "POST":
+        username = request.POST.get("username", "").strip()
+        password = request.POST.get("password", "")
+        confirm_password = request.POST.get("confirm_password", "")
+
+        if not username:
+            messages.error(request, "Vui lòng nhập tên tài khoản.")
+            return render(request, "home/register.html")
+
         if password != confirm_password:
-            messages.error(request, 'Mật khẩu không khớp!')
-            return render(request, 'home/register.html')
+            messages.error(request, "Mật khẩu không khớp!")
+            return render(request, "home/register.html")
 
         if User.objects.filter(username=username).exists():
-            messages.error(request, 'Tên tài khoản đã tồn tại!')
-            return render(request, 'home/register.html')
+            messages.error(request, "Tên tài khoản đã tồn tại!")
+            return render(request, "home/register.html")
 
         try:
             validate_password(password)
-        except ValidationError as e:
-            messages.error(request, e)
-            return render(request, 'home/register.html')
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+            return render(request, "home/register.html")
 
         user = User.objects.create_user(username=username, password=password)
-        user.save()
-        login(request, user)  # Tự động đăng nhập sau khi đăng ký
-        messages.success(request, 'Đăng ký thành công!')
-        return redirect('home')  # Chuyển hướng về trang chính
+        login(request, user)
+        messages.success(request, "Đăng ký thành công!")
+        return redirect("home")
 
-    return render(request, 'home/register.html')
+    return render(request, "home/register.html")
 
 
 def login_view(request):
-    if request.method == 'POST':
-        username = request.POST.get('username')
-        password = request.POST.get('password')
-
+    if request.method == "POST":
+        username = request.POST.get("username", "").strip()
+        password = request.POST.get("password", "")
         user = authenticate(request, username=username, password=password)
-
         if user is not None:
             login(request, user)
-            # messages.success(request, f'Chào mừng, {user.username}! Đăng nhập thành công!')
-            return redirect('home')
-        else:
-            messages.error(request, 'Tên tài khoản hoặc mật khẩu không đúng.')
+            return redirect("home")
+        messages.error(request, "Tên tài khoản hoặc mật khẩu không đúng.")
 
-    return render(request, 'home/login.html')
+    return render(request, "home/login.html")
